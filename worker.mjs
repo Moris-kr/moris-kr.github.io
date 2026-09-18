@@ -31,14 +31,11 @@ export default {async fetch(request,env,ctx){
  let gallery,page;
  try{gallery=normalizeGallery(u.searchParams.get('url')||'');page=Number(u.searchParams.get('page')||1);if(!Number.isInteger(page)||page<1||page>100520)throw new Error('페이지 번호가 올바르지 않습니다.');}catch(error){return json({message:error.message},400);}
  const upstream=new URL(gallery.url);upstream.searchParams.set('page',page);upstream.searchParams.set('list_num','50');
- const cacheUrl=new URL('/_cache/v4',u.origin);cacheUrl.searchParams.set('source',upstream.href);
- const cache=caches.default,key=new Request(cacheUrl),cached=await cache.match(key);
- if(cached){const data=await cached.json();return json({...data,cached:true});}
  try{
   const response=await fetch(upstream,{redirect:'manual',headers:{'User-Agent':'Mozilla/5.0 (compatible; GalleryPulse/1.0)','Referer':gallery.url},signal:AbortSignal.timeout(15000)});
   if(!response.ok)return json({message:`원본 서버에서 수집을 제한했습니다. (${response.status})`},502);
   const data=await parseResponse(response);
-  ctx.waitUntil(cache.put(key,Response.json(data,{headers:{'Cache-Control':'public, max-age=30'}})));
+
   return json(data);
  }catch(error){console.error(JSON.stringify({event:'page_collection_failed',name:error.name,message:error.message}));return json({message:'갤러리에 연결하지 못했습니다. 주소를 확인하거나 잠시 후 다시 시도해 주세요.'},502);}
 }};

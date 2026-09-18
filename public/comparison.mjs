@@ -1,5 +1,5 @@
 import {normalizeGallery} from './analysis.mjs';
-import {collectRemote} from './collect.mjs';
+import {collectWithConfirmed} from './cached-collect.mjs';
 export function parseGalleryInputs(values){
  const urls=[...new Set(values.map(s=>s.trim()).filter(Boolean).map(s=>normalizeGallery(s).url))];
  if(!urls.length)throw new Error('갤러리 주소를 입력해 주세요.');
@@ -16,7 +16,7 @@ export function alignReports(reports,{shared=false}={}){
  const common=times.map((_,i)=>i).filter(i=>series.length&&series.every(s=>s[i]?.complete));
  return {times,series,commonCount:common.length,averages:series.map(s=>common.length?common.reduce((sum,i)=>sum+s[i].count,0)/common.length:null)};
 }
-export async function collectMany(urls,options,{base='',signal,onUpdate=()=>{},collector=collectRemote,now=Date.now}={}){
+export async function collectMany(urls,options,{base='',signal,onUpdate=()=>{},collector=collectWithConfirmed,now=Date.now}={}){
  const observedAt=now(),states=urls.map(url=>({url,status:'waiting',report:null,error:''}));let cursor=0;
  const emit=()=>onUpdate(states.map(s=>({...s})));
  async function work(){while(cursor<states.length){const state=states[cursor++];

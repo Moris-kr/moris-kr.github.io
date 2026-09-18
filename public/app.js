@@ -1,3 +1,4 @@
+import {cacheSummary,cacheLimit,setCacheLimit,clearLocal} from './local-cache.mjs';
 import {parseGalleryInputs,collectMany,alignReports} from './comparison.mjs';
 import {drawChart,colors} from './charts.mjs';
 const $=id=>document.getElementById(id);
@@ -46,7 +47,7 @@ $('analyze-form').addEventListener('submit',async event=>{
    $('progress-bar').max=Math.max(options.count*states.length,total);$('progress-bar').value=total;
    refreshResults();
   }});
- }finally{setBusy(false);controller=null;refreshResults();}
+ }finally{setBusy(false);controller=null;refreshResults();refreshCachePanel();}
 });
 const statusNames={waiting:'대기 중',retrying:'자동 재시도 중',collecting:'수집 중',expanding:'구간 확장 중',complete:'수집 완료',partial:'부분 수집',error:'수집 실패',stopped:'수집 중지'};
 function refreshResults(){
@@ -96,6 +97,8 @@ function render(state='complete'){
  $('live-caption').textContent=live?'페이지를 읽을 때마다 갱신됩니다. 수집이 끝나면 최종 통계가 확정됩니다.':state==='stopped'?'중지하기 전까지 수집된 게시글의 결과입니다.':state==='partial'?'수집된 범위만 표시합니다. 위 안내를 확인해 주세요.':'수집된 게시글과 시간 구간을 모두 반영했습니다.';
  $('gallery-name').textContent=result.name;$('date-range').textContent=`${date(result.oldest)} — ${date(result.newest)} · ${date(result.observedAt)} 수집${result.cached?' (캐시)':''}`;
  $('original-link').href=result.gallery;
+ $('cache-report').hidden=!(result.cachedIntervals||result.cacheStatus);
+ $('cache-report').textContent=`기기 캐시 ${number(result.cachedIntervals||0)}개 재사용`+(result.cacheStatus==='saved'?` · 새 확정 구간 ${number(result.cacheSaved)}개 저장`:result.cacheStatus==='unavailable'?' · 기기 저장 공간을 사용할 수 없어 이번 결과를 보관하지 못했습니다.':result.cacheStatus==='cleared'?' · 캐시 삭제 후 이번 결과는 저장하지 않았습니다.':' · 일부·진행 중 구간은 새로 집계합니다.');
  $('data-quality').hidden=!result.bumpedCount;
  $('data-quality').textContent=`탐색한 시간대의 끌올글 ${number(result.bumpedCount)}개를 원래 작성 시각에 합산했습니다.`;
  countUp('average',result.average,1);countUp('peak',result.peak);countUp('total',result.count);countUp('duration',(result.newest-result.oldest)/3600000,1);
@@ -142,3 +145,14 @@ $('download-button').onclick=()=>{
  const csv='\uFEFF'+rows.map(r=>r.map(cell=>'"'+String(cell).replaceAll('"','""')+'"').join(',')).join('\r\n');
  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=collectionStates.length>1?'gallery-pulse-comparison.csv':`gallery-pulse-${new URL(result.gallery).searchParams.get('id')}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
+
+async function refreshCachePanel(){
+ try{const info=await cacheSummary();$('cache-summary').textContent=`${number(info.count)} / ${number(info.limit)}개 저장`;
+ $('cache-ranges').replaceChildren(...info.groups.map(g=>{const p=document.createElement('p');p.textContent=`${g.name} · ${g.minutes}분 · ${number(g.count)}개 · ${date(g.start)} ~ ${date(g.end)}`;return p;}));
+ if(!info.count)$('cache-ranges').textContent='저장된 확정 구간이 없습니다.';
+ }catch{$('cache-summary').textContent='기기 저장소 사용 불가';$('cache-message').textContent='브라우저의 저장 공간·개인정보 설정을 확인해 주세요. 캐시 없이도 분석할 수 있습니다.';}
+}
+$('cache-limit').value=cacheLimit();
+$('cache-apply').onclick=async()=>{try{await setCacheLimit(Number($('cache-limit').value));$('cache-message').textContent='보관 한도를 적용했습니다. 초과한 과거 구간은 삭제했습니다.';}catch(error){$('cache-message').textContent=error.message;}await refreshCachePanel();};
+$('cache-clear').onclick=async()=>{try{await clearLocal();$('cache-message').textContent='이 기기의 확정 캐시를 삭제했습니다. 현재 화면의 분석 결과는 유지됩니다.';}catch{$('cache-message').textContent='캐시를 삭제하지 못했습니다. 브라우저 저장소 설정을 확인해 주세요.';}await refreshCachePanel();};
+refreshCachePanel();

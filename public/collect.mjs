@@ -1,3 +1,4 @@
+import {cachedTail,applyConfirmed} from './confirmed.mjs';
 import {normalizeGallery,summarize,chronologicalPosts} from './analysis.mjs';
 
 export function abortableWait(ms,signal){
@@ -8,20 +9,21 @@ export function abortableWait(ms,signal){
   signal?.addEventListener('abort',abort,{once:true});
  });
 }
-export async function collectRemote(base,options,{signal,onProgress=()=>{},delay=350,fetchPage=fetch,now=Date.now,sleep=abortableWait,maxRetries=Infinity}={}) {
+export async function collectRemote(base,options,{signal,onProgress=()=>{},delay=350,fetchPage=fetch,now=Date.now,sleep=abortableWait,maxRetries=Infinity,getConfirmed=null,includePosts=false,emitSnapshots=true}={}) {
  const gallery=normalizeGallery(options.url),posts=new Map(),startedAt=now();
  const {count=2500,page=1,minutes=60,autoExpand=true}=options;
  for(const [n,min,max]of [[count,1,10000],[page,1,100000],[minutes,1,1440]])if(!Number.isInteger(n)||n<min||n>max)throw new Error('분석 설정의 입력 범위를 확인해 주세요.');
  let name=gallery.id,lastPage=page,firstPage=page,warning='',empty=0,requests=0;
+ let confirmed=[],confirmedLoaded=false;
  const pages=new Map(),deferredBumps=new Map(),coverage={};
- const collectedSummary=()=>{
+ const collectedSummary=(withPosts=false)=>{
   const merged=new Map(posts),times=[...posts.values()].map(p=>p.time);
   const start=coverage.start??Math.min(...times),end=coverage.end??Math.max(...times);
   let bumpedCount=0;
   for(const p of deferredBumps.values())if(!merged.has(p.id)&&p.time>=start&&(coverage.end===undefined?p.time<=end:p.time<end)){
    merged.set(p.id,p);bumpedCount++;
   }
-  return {...summarize([...merged.values()],minutes,startedAt,coverage),bumpedCount};
+  return {...applyConfirmed(summarize([...merged.values()],minutes,startedAt,coverage),confirmed),bumpedCount,...(withPosts?{_posts:[...merged.values()]}:{})};
  };
  const snapshot=()=>({...collectedSummary(),name,gallery:gallery.url,requested:count,startPage:page,firstPage,lastPage,observedAt:startedAt,warning,autoExpand,expandedCount:Math.max(0,posts.size-count)});
  async function read(current){
@@ -49,10 +51,11 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
     if(signal?.aborted)throw signal.reason;
     if(error.retryable===false||attempt>=maxRetries)throw error;
     const waitMs=Math.min(2147483647,Math.max(retryAfter,Math.min(30000,2000*2**Math.min(attempt,4))));
-    onProgress({collected:posts.size,target:count,page:current,name,phase:'retry',attempt:attempt+1,waitMs,message:error.message,snapshot:posts.size?snapshot():null});
+    onProgress({collected:posts.size,target:count,page:current,name,phase:'retry',attempt:attempt+1,waitMs,message:error.message,snapshot:posts.size&&emitSnapshots?snapshot():null});
     await sleep(waitMs,signal);
    }
   }
+  if(!confirmedLoaded&&data.posts.length&&getConfirmed){confirmedLoaded=true;try{confirmed=await getConfirmed(Math.max(...data.posts.map(p=>p.time)));}catch(error){if(signal?.aborted)throw error;}}
   name=data.name||name;lastPage=Math.max(lastPage,current);firstPage=Math.min(firstPage,current);
   const isValid=p=>p&&/^\d+$/.test(p.id)&&Number.isFinite(p.time)&&p.time<=startedAt;
   const checked=chronologicalPosts(data.posts.filter(isValid));
@@ -60,7 +63,7 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
   const valid=checked.posts;
   pages.set(current,valid);return valid;
  }
- const progress=(current,phase)=>onProgress({collected:posts.size,target:count,page:current,name,phase,snapshot:posts.size?snapshot():null});
+ const progress=(current,phase)=>onProgress({collected:posts.size,target:count,page:current,name,phase,snapshot:posts.size&&emitSnapshots?snapshot():null});
  for(let current=page;current<page+Math.ceil(count/20)+20;current++){
   let data;
   try{data=await read(current);}catch(error){
@@ -70,6 +73,8 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
   }
   let added=0;
   for(const p of data)if(!posts.has(p.id)&&posts.size<count){posts.set(p.id,p);added++;}
+  const tail=cachedTail([...posts.values()],confirmed,count,minutes);
+  for(const p of tail)if(posts.size<count)posts.set(p.id,p);
   progress(current,'sample');
   if(posts.size===count)break;
   empty=added?0:empty+1;
@@ -90,6 +95,9 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
    }
   };
   for(const data of pages.values())accept(data);
+  for(const bin of confirmed)if(bin.time>=start&&bin.time<end&&Array.isArray(bin.posts)){
+   accept(bin.posts);if(bin.time===start)lower=true;if(bin.time+width===end)upper=true;
+  }
   async function expand(current,direction){
    let unchanged=0;
    while(current>=1&&current<=100520&&extraPages<200&&posts.size<50000){
@@ -111,5 +119,5 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
   if(upper)coverage.end=Math.min(end,startedAt);
   if((!lower||!upper)&&!warning)warning='일부 구간은 확장 탐색 한도 또는 목록 끝에 도달해 전체 범위를 확인하지 못했습니다.';
  }
- return {...collectedSummary(),name,gallery:gallery.url,requested:count,startPage:page,firstPage,lastPage,observedAt:startedAt,completedAt:now(),warning,autoExpand,expandedCount:posts.size-sampleCount};
+ return {...collectedSummary(includePosts),name,gallery:gallery.url,requested:count,startPage:page,firstPage,lastPage,observedAt:startedAt,completedAt:now(),warning,autoExpand,expandedCount:posts.size-sampleCount};
 }

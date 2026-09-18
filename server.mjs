@@ -4,8 +4,8 @@ import {collect} from './lib/collector.mjs';
 import {normalizeGallery,parsePage} from './lib/core.mjs';
 const port=Number(process.env.PORT||8787);
 const origin=process.env.ALLOWED_ORIGIN||'https://moris-kr.github.io';
-const cache=new Map();let active=0;
-const files={'/comparison.mjs':['comparison.mjs','text/javascript; charset=utf-8'],'/charts.mjs':['charts.mjs','text/javascript; charset=utf-8'],'/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/config.js':['config.js','text/javascript; charset=utf-8'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+let active=0;
+const files={'/local-cache.mjs':['local-cache.mjs','text/javascript; charset=utf-8'],'/confirmed.mjs':['confirmed.mjs','text/javascript; charset=utf-8'],'/cached-collect.mjs':['cached-collect.mjs','text/javascript; charset=utf-8'],'/comparison.mjs':['comparison.mjs','text/javascript; charset=utf-8'],'/charts.mjs':['charts.mjs','text/javascript; charset=utf-8'],'/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/config.js':['config.js','text/javascript; charset=utf-8'],'/favicon.svg':['favicon.svg','image/svg+xml']};
 const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url,'http://localhost');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -35,14 +35,11 @@ const server=http.createServer(async(req,res)=>{
     res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store','X-Accel-Buffering':'no'});
     const send=(type,data)=>{if(!res.destroyed)res.write(JSON.stringify({type,...data})+'\n');};
     const controller=new AbortController();res.on('close',()=>controller.abort());
-    const key=JSON.stringify(options),hit=cache.get(key);
-    if(hit&&Date.now()-hit.at<120000){send('result',{result:{...hit.result,cached:true}});res.end();return;}
     active++;
     const keepAlive=setInterval(()=>send('heartbeat',{}),8000);
     try {
       const result=await collect(options,{signal:controller.signal,onProgress:data=>send('progress',data)});
-      if(cache.size>=30)cache.delete(cache.keys().next().value);
-      cache.set(key,{at:Date.now(),result});send('result',{result});
+      send('result',{result});
     } catch(error){send('error',{message:error.message||'수집에 실패했습니다.'});}
     finally {active--;clearInterval(keepAlive);res.end();}
     return;
