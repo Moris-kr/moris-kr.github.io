@@ -8,6 +8,20 @@ export function normalizeGallery(input) {
   return {id,url:`https://gall.dcinside.com/${match[1]||''}board/lists/?id=${id}`};
 }
 
+// Keep the longest sequence in the list's actual newest-to-oldest order.
+// Old posts can be inserted with ordinary icons, so icon filtering alone is insufficient.
+export function chronologicalPosts(posts){
+  const lengths=posts.map(()=>1),previous=posts.map(()=>-1);let best=-1;
+  for(let i=0;i<posts.length;i++){
+    for(let j=0;j<i;j++)if(Number(posts[j].id)>Number(posts[i].id)&&lengths[j]+1>lengths[i]){lengths[i]=lengths[j]+1;previous[i]=j;}
+    if(best===-1||lengths[i]>lengths[best])best=i;
+  }
+  const accepted=[];for(let i=best;i!==-1;i=previous[i])accepted.push(posts[i]);
+  accepted.reverse();const ids=new Set(accepted.map(p=>p.id));
+  const bumpedPosts=posts.filter(p=>!ids.has(p.id));
+  return {posts:accepted,bumpedPosts,excludedCount:bumpedPosts.length};
+}
+
 export function summarize(input,minutes,observedAt=Date.now(),coverage={}) {
   if(!Number.isInteger(minutes)||minutes<1||minutes>1440) throw new Error('집계 간격은 1~1,440분으로 입력해 주세요.');
   const posts=[...new Map(input.map(p=>[p.id,p])).values()].sort((a,b)=>a.time-b.time);

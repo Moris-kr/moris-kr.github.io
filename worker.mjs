@@ -1,4 +1,4 @@
-import {normalizeGallery} from './public/analysis.mjs';
+import {normalizeGallery,chronologicalPosts} from './public/analysis.mjs';
 export async function parseResponse(response){
  const posts=[];let row=null,name='',found=false;
  const rewriter=new HTMLRewriter()
@@ -15,7 +15,7 @@ export async function parseResponse(response){
  const transformed=rewriter.transform(response),reader=transformed.body.getReader();let bytes=0;
  while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>4000000){await reader.cancel();throw new Error('원본 응답 크기가 너무 큽니다.');}}
  if(!found&&!posts.length)throw new Error('갤러리를 찾을 수 없거나 원본 서버가 요청을 제한했습니다.');
- return {posts,name:name.replace(/(갤러리)(마이너|미니)$/,'$1').trim()};
+ return {...chronologicalPosts(posts),name:name.replace(/(갤러리)(마이너|미니)$/,'$1').trim()};
 }
 export default {async fetch(request,env,ctx){
  const u=new URL(request.url),origin=request.headers.get('Origin');
@@ -31,7 +31,7 @@ export default {async fetch(request,env,ctx){
  let gallery,page;
  try{gallery=normalizeGallery(u.searchParams.get('url')||'');page=Number(u.searchParams.get('page')||1);if(!Number.isInteger(page)||page<1||page>100520)throw new Error('페이지 번호가 올바르지 않습니다.');}catch(error){return json({message:error.message},400);}
  const upstream=new URL(gallery.url);upstream.searchParams.set('page',page);upstream.searchParams.set('list_num','50');
- const cacheUrl=new URL('/_cache',u.origin);cacheUrl.searchParams.set('source',upstream.href);
+ const cacheUrl=new URL('/_cache/v4',u.origin);cacheUrl.searchParams.set('source',upstream.href);
  const cache=caches.default,key=new Request(cacheUrl),cached=await cache.match(key);
  if(cached){const data=await cached.json();return json({...data,cached:true});}
  try{

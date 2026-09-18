@@ -1,11 +1,21 @@
-import {normalizeGallery,summarize} from './analysis.mjs';
+import {normalizeGallery,summarize,chronologicalPosts} from './analysis.mjs';
 
 export async function collectRemote(base,options,{signal,onProgress=()=>{},delay=350,fetchPage=fetch,now=Date.now}={}) {
  const gallery=normalizeGallery(options.url),posts=new Map(),startedAt=now();
  const {count=2500,page=1,minutes=60,autoExpand=true}=options;
  for(const [n,min,max]of [[count,1,10000],[page,1,100000],[minutes,1,1440]])if(!Number.isInteger(n)||n<min||n>max)throw new Error('분석 설정의 입력 범위를 확인해 주세요.');
  let name=gallery.id,lastPage=page,firstPage=page,warning='',empty=0,requests=0;
- const pages=new Map();
+ const pages=new Map(),deferredBumps=new Map(),coverage={};
+ const collectedSummary=()=>{
+  const merged=new Map(posts),times=[...posts.values()].map(p=>p.time);
+  const start=coverage.start??Math.min(...times),end=coverage.end??Math.max(...times);
+  let bumpedCount=0;
+  for(const p of deferredBumps.values())if(!merged.has(p.id)&&p.time>=start&&(coverage.end===undefined?p.time<=end:p.time<end)){
+   merged.set(p.id,p);bumpedCount++;
+  }
+  return {...summarize([...merged.values()],minutes,startedAt,coverage),bumpedCount};
+ };
+ const snapshot=()=>({...collectedSummary(),name,gallery:gallery.url,requested:count,startPage:page,firstPage,lastPage,observedAt:startedAt,warning,autoExpand,expandedCount:Math.max(0,posts.size-count)});
  async function read(current){
   signal?.throwIfAborted();
   if(requests++&&delay)await new Promise(resolve=>setTimeout(resolve,delay));
@@ -15,10 +25,13 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
   const data=await response.json();if(!response.ok)throw new Error(data.message||`수집 서버 오류 (${response.status})`);
   if(!Array.isArray(data.posts))throw new Error('수집 서버의 응답 형식이 올바르지 않습니다.');
   name=data.name||name;lastPage=Math.max(lastPage,current);firstPage=Math.min(firstPage,current);
-  const valid=data.posts.filter(p=>/^\d+$/.test(p.id)&&Number.isFinite(p.time)&&p.time<=startedAt).sort((a,b)=>b.time-a.time);
+  const isValid=p=>p&&/^\d+$/.test(p.id)&&Number.isFinite(p.time)&&p.time<=startedAt;
+  const checked=chronologicalPosts(data.posts.filter(isValid));
+  for(const p of [...checked.bumpedPosts,...(Array.isArray(data.bumpedPosts)?data.bumpedPosts:[])].filter(isValid))deferredBumps.set(p.id,p);
+  const valid=checked.posts;
   pages.set(current,valid);return valid;
  }
- const progress=(current,phase)=>onProgress({collected:posts.size,target:count,page:current,name,phase});
+ const progress=(current,phase)=>onProgress({collected:posts.size,target:count,page:current,name,phase,snapshot:posts.size?snapshot():null});
  for(let current=page;current<page+Math.ceil(count/20)+20;current++){
   let data;
   try{data=await read(current);}catch(error){
@@ -34,7 +47,7 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
   if(empty>=2){warning='더 이상 읽을 수 있는 일반 게시글이 없어 수집을 마쳤습니다.';break;}
  }
  if(posts.size<count&&!warning)warning='탐색 한도에 도달해 수집된 글만 표시합니다.';
- const sampleCount=posts.size,coverage={};
+ const sampleCount=posts.size;
  if(autoExpand&&sampleCount&&!warning){
   const times=[...posts.values()].map(p=>p.time),width=minutes*60000,offset=9*3600000;
   const floor=t=>Math.floor((t+offset)/width)*width-offset;
@@ -69,5 +82,5 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
   if(upper)coverage.end=Math.min(end,startedAt);
   if((!lower||!upper)&&!warning)warning='일부 구간은 확장 탐색 한도 또는 목록 끝에 도달해 전체 범위를 확인하지 못했습니다.';
  }
- return {...summarize([...posts.values()],minutes,startedAt,coverage),name,gallery:gallery.url,requested:count,startPage:page,firstPage,lastPage,observedAt:startedAt,completedAt:now(),warning,autoExpand,expandedCount:posts.size-sampleCount};
+ return {...collectedSummary(),name,gallery:gallery.url,requested:count,startPage:page,firstPage,lastPage,observedAt:startedAt,completedAt:now(),warning,autoExpand,expandedCount:posts.size-sampleCount};
 }
