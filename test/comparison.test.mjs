@@ -32,3 +32,10 @@ test('common averages stay unavailable while a gallery has no data',()=>{
  const r=alignReports([report([{time:0,count:4,complete:true}]),null]);
  assert.equal(r.commonCount,0);assert.deepEqual(r.averages,[null,null]);
 });
+test('shared chart range trims longer galleries unless expanded',()=>{
+ const a=report([{time:3600000,count:2},{time:7200000,count:3}]);
+ const b=report([{time:0,count:5},{time:3600000,count:6},{time:7200000,count:7}]);
+ assert.deepEqual(alignReports([a,b],{shared:true}).times,[3600000,7200000]);
+ assert.deepEqual(alignReports([a,b]).times,[0,3600000,7200000]);
+ assert.deepEqual(alignReports([a,null],{shared:true}).times,[]);
+});

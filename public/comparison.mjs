@@ -6,8 +6,12 @@ export function parseGalleryInputs(values){
  if(urls.length>5)throw new Error('갤러리는 최대 5개까지 비교할 수 있습니다.');
  return urls;
 }
-export function alignReports(reports){
- const times=[...new Set(reports.flatMap(r=>r?.buckets.map(b=>b.time)||[]))].sort((a,b)=>a-b);
+export function alignReports(reports,{shared=false}={}){
+ let times=[...new Set(reports.flatMap(r=>r?.buckets.map(b=>b.time)||[]))].sort((a,b)=>a-b);
+ if(shared&&reports.length>1){
+  if(reports.some(r=>!r?.buckets.length))times=[];
+  else{const start=Math.max(...reports.map(r=>r.buckets[0].time)),end=Math.min(...reports.map(r=>r.buckets.at(-1).time));times=times.filter(t=>t>=start&&t<=end);}
+ }
  const series=reports.map(r=>{const map=new Map(r?.buckets.map(b=>[b.time,b])||[]);return times.map(t=>map.get(t)||null);});
  const common=times.map((_,i)=>i).filter(i=>series.length&&series.every(s=>s[i]?.complete));
  return {times,series,commonCount:common.length,averages:series.map(s=>common.length?common.reduce((sum,i)=>sum+s[i].count,0)/common.length:null)};

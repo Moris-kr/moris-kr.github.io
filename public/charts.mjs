@@ -2,9 +2,9 @@ import {alignReports} from './comparison.mjs';
 export const colors=['#b5d886','#e8b77c','#80c6cf','#e79eaa','#c3bb8c'];
 const fmt=t=>new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(t);
 const status=b=>b.ongoing?'진행 중':b.complete?'전체 구간':'일부 구간';
-export function drawChart(container,entries,type,selection){
- const {times,series}=alignReports(entries.map(e=>e.report));
- if(!times.length){container.textContent='표시할 갤러리를 선택해 주세요.';return;}
+export function drawChart(container,entries,type,selection,{shared=true}={}){
+ const {times,series}=alignReports(entries.map(e=>e.report),{shared});
+ if(!times.length){container.textContent=entries.length?'공통으로 수집된 시간 구간을 기다리고 있습니다. 전체 기간으로 확장하면 개별 수집 범위를 볼 수 있습니다.':'표시할 갤러리를 선택해 주세요.';return;}
  const stacked=type==='stack',width=Math.max(680,Math.min(12000,times.length*18+70)),height=290,left=48,top=20,bottom=38,plotH=height-top-bottom,plotW=width-left-14,interval=entries[0].report.minutes*60000,step=plotW/((times.at(-1)-times[0])/interval+1);
  const slot=i=>(times[i]-times[0])/interval;
  // Stacks exist only where every visible series has data; missing is never zero.
