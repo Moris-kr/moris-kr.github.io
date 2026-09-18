@@ -1,6 +1,14 @@
 import {normalizeGallery,summarize,chronologicalPosts} from './analysis.mjs';
 
-export async function collectRemote(base,options,{signal,onProgress=()=>{},delay=350,fetchPage=fetch,now=Date.now}={}) {
+export function abortableWait(ms,signal){
+ signal?.throwIfAborted();
+ return new Promise((resolve,reject)=>{
+  const abort=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);reject(signal.reason);};
+  const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},ms);
+  signal?.addEventListener('abort',abort,{once:true});
+ });
+}
+export async function collectRemote(base,options,{signal,onProgress=()=>{},delay=350,fetchPage=fetch,now=Date.now,sleep=abortableWait,maxRetries=Infinity}={}) {
  const gallery=normalizeGallery(options.url),posts=new Map(),startedAt=now();
  const {count=2500,page=1,minutes=60,autoExpand=true}=options;
  for(const [n,min,max]of [[count,1,10000],[page,1,100000],[minutes,1,1440]])if(!Number.isInteger(n)||n<min||n>max)throw new Error('분석 설정의 입력 범위를 확인해 주세요.');
@@ -18,12 +26,33 @@ export async function collectRemote(base,options,{signal,onProgress=()=>{},delay
  const snapshot=()=>({...collectedSummary(),name,gallery:gallery.url,requested:count,startPage:page,firstPage,lastPage,observedAt:startedAt,warning,autoExpand,expandedCount:Math.max(0,posts.size-count)});
  async function read(current){
   signal?.throwIfAborted();
-  if(requests++&&delay)await new Promise(resolve=>setTimeout(resolve,delay));
+  if(requests++&&delay)await sleep(delay,signal);
   signal?.throwIfAborted();
   const u=new URL(base+'/api/page');u.searchParams.set('url',gallery.url);u.searchParams.set('page',current);
-  const response=await fetchPage(u,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});
-  const data=await response.json();if(!response.ok)throw new Error(data.message||`수집 서버 오류 (${response.status})`);
-  if(!Array.isArray(data.posts))throw new Error('수집 서버의 응답 형식이 올바르지 않습니다.');
+  let data;
+  for(let attempt=0;;attempt++){
+   signal?.throwIfAborted();
+   let retryAfter=0;
+   try{
+    const response=await fetchPage(u,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});
+    const header=response.headers.get('Retry-After');
+    if(header)retryAfter=Math.max(0,/^\d+$/.test(header)?Number(header)*1000:Date.parse(header)-Date.now())||0;
+    if(!response.ok){
+     let message;try{message=(await response.json()).message;}catch{}
+     const error=new Error(message||`수집 서버 오류 (${response.status})`);
+     error.retryable=response.status===408||response.status===429||response.status>=500;throw error;
+    }
+    data=await response.json();
+    if(!Array.isArray(data.posts))throw new Error('수집 서버의 응답 형식이 올바르지 않습니다.');
+    break;
+   }catch(error){
+    if(signal?.aborted)throw signal.reason;
+    if(error.retryable===false||attempt>=maxRetries)throw error;
+    const waitMs=Math.min(2147483647,Math.max(retryAfter,Math.min(30000,2000*2**Math.min(attempt,4))));
+    onProgress({collected:posts.size,target:count,page:current,name,phase:'retry',attempt:attempt+1,waitMs,message:error.message,snapshot:posts.size?snapshot():null});
+    await sleep(waitMs,signal);
+   }
+  }
   name=data.name||name;lastPage=Math.max(lastPage,current);firstPage=Math.min(firstPage,current);
   const isValid=p=>p&&/^\d+$/.test(p.id)&&Number.isFinite(p.time)&&p.time<=startedAt;
   const checked=chronologicalPosts(data.posts.filter(isValid));

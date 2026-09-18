@@ -18,7 +18,7 @@ export async function collectMany(urls,options,{base='',signal,onUpdate=()=>{},c
  async function work(){while(cursor<states.length){const state=states[cursor++];
   if(signal?.aborted){state.status='stopped';emit();continue;}
   state.status='collecting';emit();
-  try{state.report=await collector(base,{...options,url:state.url},{signal,now:()=>observedAt,onProgress:m=>{state.report=m.snapshot;state.status=m.phase==='expand'?'expanding':'collecting';emit();}});state.status=state.report.warning?'partial':'complete';}
+  try{state.report=await collector(base,{...options,url:state.url},{signal,now:()=>observedAt,onProgress:m=>{state.report=m.snapshot||state.report;state.retry=m.phase==='retry'?{page:m.page,attempt:m.attempt,waitMs:m.waitMs}:null;state.status=m.phase==='retry'?'retrying':m.phase==='expand'?'expanding':'collecting';emit();}});state.status=state.report.warning?'partial':'complete';}
   catch(error){state.status=signal?.aborted?'stopped':'error';state.error=signal?.aborted?'수집 중지':error.message;}
   emit();
  }}

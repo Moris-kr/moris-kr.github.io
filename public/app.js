@@ -40,19 +40,20 @@ $('analyze-form').addEventListener('submit',async event=>{
   await collectMany(urls,options,{base,signal:controller.signal,onUpdate:states=>{
    collectionStates=states;
    const total=states.reduce((n,s)=>n+(s.report?.count||0),0),done=states.filter(s=>['complete','partial','error','stopped'].includes(s.status)).length;
-   $('progress-label').textContent=`${done} / ${states.length}개 갤러리 완료 · ${number(total)}개 수집`;
+   const retrying=states.filter(s=>s.status==='retrying').map(s=>`${s.report?.name||new URL(s.url).searchParams.get('id')}: ${s.retry.page}페이지 · ${s.retry.attempt}번째 재시도 · ${Math.ceil(s.retry.waitMs/1000)}초 대기`);
+   $('progress-label').textContent=retrying.length?retrying.join(' / '):`${done} / ${states.length}개 갤러리 완료 · ${number(total)}개 수집`;
    $('progress-bar').max=Math.max(options.count*states.length,total);$('progress-bar').value=total;
    refreshResults();
   }});
  }finally{setBusy(false);controller=null;refreshResults();}
 });
-const statusNames={waiting:'대기 중',collecting:'수집 중',expanding:'구간 확장 중',complete:'수집 완료',partial:'부분 수집',error:'수집 실패',stopped:'수집 중지'};
+const statusNames={waiting:'대기 중',retrying:'자동 재시도 중',collecting:'수집 중',expanding:'구간 확장 중',complete:'수집 완료',partial:'부분 수집',error:'수집 실패',stopped:'수집 중지'};
 function refreshResults(){
  const ready=collectionStates.map((s,i)=>({...s,index:i})).filter(s=>s.report);
  if(!ready.length){notice(collectionStates.filter(s=>s.error).map(s=>s.error).join(' · '));return;}
  if(!collectionStates[detailIndex]?.report)detailIndex=ready[0].index;
  result=collectionStates[detailIndex].report;
- const live=collectionStates.some(s=>['waiting','collecting','expanding'].includes(s.status));
+ const live=collectionStates.some(s=>['waiting','collecting','expanding','retrying'].includes(s.status));
  const state=live?'collecting':collectionStates.some(s=>s.status==='stopped')?'stopped':collectionStates.some(s=>s.status!=='complete')?'partial':'complete';
  const select=$('detail-gallery');select.replaceChildren(...ready.map(s=>{const o=document.createElement('option');o.value=s.index;o.textContent=s.report.name+' · '+new URL(s.url).searchParams.get('id');return o;}));select.value=detailIndex;
  const aligned=alignReports(collectionStates.map(s=>s.report));

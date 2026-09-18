@@ -6,15 +6,15 @@ const options={url:'https://gall.dcinside.com/mgallery/board/lists/?id=gov',coun
 const p=(id,hour)=>({id:String(id),time:Date.parse(`2026-09-18T${hour}:00:00+09:00`)});
 test('starts on requested page, removes overlapping IDs and stops at exact target',async()=>{
  const visited=[];const pages=[[p(4,'12'),p(3,'11')],[p(3,'11'),p(2,'10'),p(1,'09')]];
- const r=await collectRemote(base,options,{delay:0,fetchPage:async u=>{visited.push(u.searchParams.get('page'));return Response.json({name:'테스트',posts:pages.shift()});}});
+ const r=await collectRemote(base,options,{delay:0,maxRetries:0,fetchPage:async u=>{visited.push(u.searchParams.get('page'));return Response.json({name:'테스트',posts:pages.shift()});}});
  assert.deepEqual(visited,['8','9']);assert.equal(r.count,3);assert.equal(r.oldest,p(2,'10').time);assert.equal(r.warning,'');
 });
 test('reports a partial result when an upstream page fails',async()=>{
- let calls=0;const r=await collectRemote(base,options,{delay:0,fetchPage:async()=>++calls===1?Response.json({posts:[p(3,'11')]}):Response.json({message:'수집 제한'},{status:502})});
+ let calls=0;const r=await collectRemote(base,options,{delay:0,maxRetries:0,fetchPage:async()=>++calls===1?Response.json({posts:[p(3,'11')]}):Response.json({message:'수집 제한'},{status:502})});
  assert.equal(r.count,1);assert.match(r.warning,/중단/);assert.equal(r.average,null);
 });
 test('empty or invalid galleries are not fabricated as zero activity',async()=>{
- await assert.rejects(collectRemote(base,options,{delay:0,fetchPage:async()=>Response.json({posts:[]})}),/게시글이 없습니다/);
+ await assert.rejects(collectRemote(base,options,{delay:0,maxRetries:0,fetchPage:async()=>Response.json({posts:[]})}),/게시글이 없습니다/);
  await assert.rejects(collectRemote(base,{...options,count:-1}),/입력 범위/);
 });
 test('cancellation stops a collection',async()=>{
@@ -23,7 +23,7 @@ test('cancellation stops a collection',async()=>{
 });
 test('emits immutable chart snapshots after each page before collection completes',async()=>{
  const snapshots=[];let calls=0;
- const r=await collectRemote(base,options,{delay:0,fetchPage:async()=>{
+ const r=await collectRemote(base,options,{delay:0,maxRetries:0,fetchPage:async()=>{
   calls++;
   if(calls===2)assert.equal(snapshots[0]?.count,2);
   return Response.json({posts:calls===1?[p(4,'12'),p(3,'11')]:[p(2,'10')]});
@@ -34,20 +34,20 @@ test('emits immutable chart snapshots after each page before collection complete
 });
 test('defers bumped posts until their original time has actually been traversed',async()=>{
  const pages={1:{posts:[p(5,'12'),p(4,'11')],bumpedPosts:[p(1,'08')]},2:{posts:[p(3,'10'),p(2,'09')]},3:{posts:[p(1,'08'),p(0,'07')]}};
- const run=count=>collectRemote(base,{...options,page:1,count},{delay:0,fetchPage:async u=>Response.json(pages[+u.searchParams.get('page')]||{posts:[]})});
+ const run=count=>collectRemote(base,{...options,page:1,count},{delay:0,maxRetries:0,fetchPage:async u=>Response.json(pages[+u.searchParams.get('page')]||{posts:[]})});
  const short=await run(3);assert.equal(short.oldest,p(3,'10').time);assert.equal(short.count,3);assert.equal(short.bumpedCount,0);
  const long=await run(5);assert.equal(long.count,5);assert.equal(long.buckets.find(b=>b.time===p(1,'08').time).count,1);
 });
 test('counts a deferred bumped post once its timestamp is within the traversed range',async()=>{
  const pages={1:{posts:[p(5,'12'),p(4,'11')],bumpedPosts:[p(1,'08')]},2:{posts:[p(3,'09'),p(2,'07')]}};
- const r=await collectRemote(base,{...options,page:1,count:4},{delay:0,fetchPage:async u=>Response.json(pages[+u.searchParams.get('page')]||{posts:[]})});
+ const r=await collectRemote(base,{...options,page:1,count:4},{delay:0,maxRetries:0,fetchPage:async u=>Response.json(pages[+u.searchParams.get('page')]||{posts:[]})});
  assert.equal(r.count,5);assert.equal(r.bumpedCount,1);assert.equal(r.buckets.find(b=>b.time===p(1,'08').time).count,1);
 });
 test('expands both edges to full intervals and excludes boundary-crossing evidence',async()=>{
  const post=(id,t)=>({id:String(id),time:Date.parse(`2026-09-18T${t}:00+09:00`)});
  const pages={8:[post(6,'12:40'),post(5,'12:20'),post(4,'11:50')],9:[post(3,'11:30'),post(2,'11:00'),post(1,'10:55')],7:[post(8,'13:00'),post(7,'12:55')]};
  const visited=[];
- const r=await collectRemote(base,{...options,autoExpand:true},{delay:0,fetchPage:async u=>{const page=+u.searchParams.get('page');visited.push(page);return Response.json({posts:pages[page]||[]});}});
+ const r=await collectRemote(base,{...options,autoExpand:true},{delay:0,maxRetries:0,fetchPage:async u=>{const page=+u.searchParams.get('page');visited.push(page);return Response.json({posts:pages[page]||[]});}});
  assert.equal(r.count,6);assert.equal(r.expandedCount,3);assert.equal(r.completeIntervals,2);assert.equal(r.average,3);
  assert.deepEqual(r.buckets.map(b=>b.count),[3,3]);assert.deepEqual(visited,[8,9,7]);
 });
@@ -57,7 +57,7 @@ test('default expansion keeps the current interval ongoing instead of complete',
  assert.equal(r.count,1);assert.equal(r.buckets[0].complete,false);assert.equal(r.buckets[0].ongoing,true);assert.equal(r.average,null);
 });
 test('failed edge expansion does not claim full coverage',async()=>{
- const r=await collectRemote(base,{...options,count:1,autoExpand:true},{delay:0,fetchPage:async u=>+u.searchParams.get('page')===8?Response.json({posts:[p(4,'12')]}):Response.json({message:'blocked'},{status:502})});
+ const r=await collectRemote(base,{...options,count:1,autoExpand:true},{delay:0,maxRetries:0,fetchPage:async u=>+u.searchParams.get('page')===8?Response.json({posts:[p(4,'12')]}):Response.json({message:'blocked'},{status:502})});
  assert.equal(r.buckets[0].complete,false);assert.match(r.warning,/확장/);
 });
 test('expansion across midnight uses KST boundaries and drops newer-than-snapshot posts',async()=>{
@@ -72,6 +72,34 @@ test('bumped posts cannot prove an expansion boundary or extend its range',async
  const at=t=>Date.parse(`2026-09-18T${t}:00+09:00`);
  const pages={1:{posts:[{id:'5',time:at('12:30')}],bumpedPosts:[{id:'1',time:at('08:00')},{id:'2',time:at('12:05')}]},2:{posts:[{id:'4',time:at('12:10')},{id:'3',time:at('11:59')}]}};
  const visited=[];
- const r=await collectRemote(base,{...options,page:1,count:1,autoExpand:true},{delay:0,fetchPage:async u=>{const page=+u.searchParams.get('page');visited.push(page);return Response.json(pages[page]||{posts:[]});}});
+ const r=await collectRemote(base,{...options,page:1,count:1,autoExpand:true},{delay:0,maxRetries:0,fetchPage:async u=>{const page=+u.searchParams.get('page');visited.push(page);return Response.json(pages[page]||{posts:[]});}});
  assert.deepEqual(visited,[1,2]);assert.equal(r.count,3);assert.equal(r.bumpedCount,1);assert.equal(r.buckets.length,1);assert.equal(r.buckets[0].complete,true);
+});
+
+test('retries the same page without losing posts or double counting',async()=>{
+ const visited=[],waits=[],events=[];let failed=false;
+ const r=await collectRemote(base,options,{delay:0,sleep:async ms=>waits.push(ms),fetchPage:async u=>{
+  const page=+u.searchParams.get('page');visited.push(page);
+  if(page===9&&!failed){failed=true;return Response.json({message:'temporary'},{status:502});}
+  return Response.json({posts:page===8?[p(4,'12'),p(3,'11')]:[p(3,'11'),p(2,'10')]});
+ },onProgress:m=>events.push(m)});
+ assert.deepEqual(visited,[8,9,9]);assert.equal(r.count,3);assert.equal(r.warning,'');assert.equal(waits.length,1);
+ assert.equal(events.find(m=>m.phase==='retry').snapshot.count,2);
+});
+test('retry waits honor Retry-After and manual cancellation',async()=>{
+ const controller=new AbortController();let calls=0,wait;
+ await assert.rejects(collectRemote(base,options,{signal:controller.signal,delay:0,sleep:async ms=>{wait=ms;controller.abort();},fetchPage:async()=>{calls++;return Response.json({message:'slow'},{status:429,headers:{'Retry-After':'45'}});}}),{name:'AbortError'});
+ assert.equal(calls,1);assert.equal(wait,45000);
+});
+test('invalid requests do not retry',async()=>{
+ let calls=0;await assert.rejects(collectRemote(base,options,{delay:0,fetchPage:async()=>{calls++;return Response.json({message:'invalid'},{status:400});}}),/invalid/);assert.equal(calls,1);
+});
+import {abortableWait} from '../public/collect.mjs';
+test('manual stop interrupts a pending retry timer immediately',async()=>{
+ const controller=new AbortController(),pending=abortableWait(30000,controller.signal);controller.abort();await assert.rejects(pending,{name:'AbortError'});
+});
+test('network failures back off and recover on the first page',async()=>{
+ let calls=0;const waits=[];
+ const r=await collectRemote(base,{...options,count:1},{delay:0,sleep:async ms=>waits.push(ms),fetchPage:async()=>{if(++calls<7)throw new TypeError('Failed to fetch');return Response.json({posts:[p(1,'10')]});}});
+ assert.equal(r.count,1);assert.deepEqual(waits,[2000,4000,8000,16000,30000,30000]);
 });
