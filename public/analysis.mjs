@@ -8,7 +8,7 @@ export function normalizeGallery(input) {
   return {id,url:`https://gall.dcinside.com/${match[1]||''}board/lists/?id=${id}`};
 }
 
-export function summarize(input,minutes,observedAt=Date.now()) {
+export function summarize(input,minutes,observedAt=Date.now(),coverage={}) {
   if(!Number.isInteger(minutes)||minutes<1||minutes>1440) throw new Error('집계 간격은 1~1,440분으로 입력해 주세요.');
   const posts=[...new Map(input.map(p=>[p.id,p])).values()].sort((a,b)=>a.time-b.time);
   if(!posts.length) throw new Error('집계할 일반 게시글이 없습니다.');
@@ -18,7 +18,12 @@ export function summarize(input,minutes,observedAt=Date.now()) {
   if((end-start)/width>20000) throw new Error('분석 기간이 너무 깁니다. 집계 간격을 늘려 주세요.');
   const counts=new Map();for(const p of posts) counts.set(floor(p.time),(counts.get(floor(p.time))||0)+1);
   const buckets=[];
-  for(let time=start;time<=end;time+=width) buckets.push({time,count:counts.get(time)||0,complete:time>oldest && time+width<=Math.min(newest,observedAt)});
+  for(let time=start;time<=end;time+=width) {
+    const lowerCovered=time>oldest || (Number.isFinite(coverage.start)&&coverage.start<=time);
+    const upperCovered=time+width<=newest || (Number.isFinite(coverage.end)&&coverage.end>=time+width);
+    const ongoing=time<=observedAt&&time+width>observedAt;
+    buckets.push({time,count:counts.get(time)||0,complete:lowerCovered&&upperCovered&&!ongoing,ongoing});
+  }
   const complete=buckets.filter(b=>b.complete);
   const average=complete.length?complete.reduce((sum,b)=>sum+b.count,0)/complete.length:null;
   return {count:posts.length,oldest,newest,minutes,buckets,average,peak:complete.length?Math.max(...complete.map(b=>b.count)):null,completeIntervals:complete.length};
