@@ -1,0 +1,41 @@
+# Gallery Pulse
+
+디시인사이드 갤러리의 공개 게시글 작성 시각을 집계하는 웹 도구입니다.
+
+- 사이트: https://moris-kr.github.io/
+- 기본값: 60분 간격, 최신 2,500개, 1페이지부터 과거 방향
+- 설정: 1~1,440분, 1~10,000개, 시작 페이지
+- 일반·마이너·미니 갤러리 주소 지원
+- 공지, 광고, 설문, 목록에 삽입된 추천 글, 중복 제외
+- 시간대별 그래프, 평균·최고 화력, 상세 표, CSV 다운로드, 취소
+
+## 집계 방식
+
+페이지당 50개 목록에서 읽을 수 있는 일반 게시글을 수집합니다. 게시글 번호 차이로 글 수를 추정하지 않습니다. 작성 시각을 KST로 해석해 같은 길이의 시간 구간으로 집계하고, 중간 빈 구간은 0건으로 표시합니다. 양 끝의 불완전 구간은 평균·최고에서 제외합니다. 완전한 구간이 없으면 해당 지표는 표시하지 않습니다. 수집 중 삭제·새 글로 페이지가 이동하면 누락이 생길 수 있습니다. 오류로 중단되면 부분 수집임을 명시합니다.
+
+## 실행 및 테스트
+
+Node.js 22 이상:
+
+```sh
+npm ci
+npm test
+npm start
+```
+
+http://localhost:8787 에서 실행합니다. `public/config.js`의 API 주소가 비어 있으면 로컬 수집 서버를 이용합니다. 주소가 설정돼 있으면 배포된 API를 이용합니다.
+
+## 배포
+
+프런트엔드는 `public/`의 정적 파일만 GitHub Pages에 배포합니다. `main` 푸시 시 `.github/workflows/pages.yml`이 테스트 후 배포합니다. 저장소 Settings → Pages → Source는 GitHub Actions입니다.
+
+수집 API는 Cloudflare Pages의 Advanced Mode Worker입니다. 브라우저의 교차 출처 제한을 해결하며, 임의 외부 주소를 프록시하지 않습니다. 공개 응답에는 글 번호와 작성 시각만 포함합니다. 제목·작성자·본문은 저장하지 않습니다. HTMLRewriter로 목록을 읽으며 30초 엣지 캐시를 사용합니다. 브라우저는 순차 요청 사이에 350ms를 둡니다. 서비스 이용량에는 Cloudflare 계정의 할당량이 적용됩니다.
+
+```sh
+node scripts/build-api.mjs
+npx wrangler pages deploy api-dist --project-name gallery-pulse-api --branch main
+```
+
+공개 API 주소는 `public/config.js`, 허용하는 사이트 출처는 `worker.mjs`에서 관리합니다. 인증 토큰과 계정 정보는 저장소에 넣지 않습니다. 커밋 작성자는 `moris-kr`, 이메일은 `220906177+moris-kr@users.noreply.github.com`을 사용합니다.
+
+디시인사이드와 무관한 비공식 도구입니다. 원본 사이트 구조 변경·접근 제한 시 수집이 실패할 수 있습니다.
