@@ -5,7 +5,7 @@ import {normalizeGallery,parsePage} from './lib/core.mjs';
 const port=Number(process.env.PORT||8787);
 const origin=process.env.ALLOWED_ORIGIN||'https://moris-kr.github.io';
 const cache=new Map();let active=0;
-const files={'/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/config.js':['config.js','text/javascript; charset=utf-8'],'/favicon.svg':['favicon.svg','image/svg+xml']};
+const files={'/comparison.mjs':['comparison.mjs','text/javascript; charset=utf-8'],'/charts.mjs':['charts.mjs','text/javascript; charset=utf-8'],'/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/config.js':['config.js','text/javascript; charset=utf-8'],'/favicon.svg':['favicon.svg','image/svg+xml']};
 const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url,'http://localhost');
   res.setHeader('X-Content-Type-Options','nosniff');
