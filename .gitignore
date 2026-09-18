@@ -7,3 +7,4 @@ artifacts/
 .wrangler/
 .dev.vars
 api-dist/
+site-dist/
